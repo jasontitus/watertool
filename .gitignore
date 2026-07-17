@@ -1,0 +1,15 @@
+# Secrets & local data
+.env
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,31 @@
+[project]
+name = "watertool"
+version = "0.1.0"
+description = "Track and optimize irrigation across multiple Rachio-equipped properties"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
+    "pydantic-settings>=2.2",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+watertool = "watertool.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/watertool"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
