@@ -18,6 +18,10 @@ is based on.
   same math Rachio's own usage screen uses), and records metered gallons if a flow
   meter is attached.
 - **Reports** gallons and runtime by property / zone / week.
+- **Dashboard** — a self-contained web UI (`watertool serve`) with a comparative
+  monthly chart across residences, per-property cards, a zone breakdown, and a
+  recent-runs table. Exportable as a static site (`watertool export`) for hosting,
+  **anonymized by default**.
 - Exposes Rachio's official control levers (manual runs, seasonal adjustment,
   schedule skip, rain delay, and Flex Daily `setMoisturePercent`) for future
   sensor-driven automation.
@@ -26,9 +30,9 @@ is based on.
 
 ```
 Rachio controllers ──webhooks──▶ receiver (FastAPI) ─┐
-                   ──poll──────▶ reconciler ─────────┼─▶ events_raw ─▶ zone_runs ─▶ report / Grafana
-                                                      │      (ledger)    (paired)
-external sensors (Ecowitt/YoLink) ──▶ sensor_readings┘   [phase 2]
+                   ──poll──────▶ reconciler ─────────┼─▶ events_raw ─▶ zone_runs ─┬─▶ report (CLI)
+                                                      │      (ledger)    (paired)  ├─▶ dashboard (/ + /data.json)
+external sensors (Ecowitt/YoLink) ──▶ sensor_readings┘   [phase 2]                └─▶ export → static site
 Flume / submeter ─────────────────▶ flow_readings        [phase 2]
 ```
 
@@ -95,6 +99,34 @@ It refreshes the account tree, **re-registers any webhook Rachio silently droppe
 (Rachio auto-removes a webhook after 10 consecutive delivery failures), and polls an
 overlapping window so nothing is lost.
 
+## Dashboard
+
+`watertool serve` also hosts a self-contained web dashboard at `/` (backed by
+`/data.json` from the local store) — comparative monthly water use across residences,
+per-property cards with sparklines, a top-zones breakdown, and a recent-runs table.
+It's one HTML file with no external requests, theme-aware, using an
+accessibility-validated (colorblind-safe) palette.
+
+```bash
+uv run watertool serve --host 127.0.0.1 --port 8000   # then open http://127.0.0.1:8000
+```
+
+Bind to `127.0.0.1` for local-only viewing — served this way it shows **real
+addresses** and never leaves your machine.
+
+To host it, export a **static** snapshot (works on Firebase Hosting, Netlify, S3,
+GitHub Pages, any static host — the page just fetches `./data.json`):
+
+```bash
+uv run watertool export --out dist            # anonymized by default
+uv run watertool export --out dist --full     # include full addresses
+```
+
+**Anonymized (the default for anything you host)** strips house numbers, full
+addresses, GPS, controller serials, and internal ids — properties keep only a short
+street-name label, so a public URL never discloses where you live or which house is
+vacant. Watering stats are unaffected.
+
 ## Commands
 
 | Command | What |
@@ -106,7 +138,8 @@ overlapping window so nothing is lost.
 | `watertool register-webhooks` | (Re)register webhooks only |
 | `watertool reprocess [--all]` | Rebuild runs from stored events |
 | `watertool report [--weeks N]` | Gallons/runtime by property/zone/week |
-| `watertool serve [--port N]` | Run the webhook receiver |
+| `watertool export [--out D] [--full]` | Write a static dashboard (anonymized by default) |
+| `watertool serve [--port N]` | Run the webhook receiver + dashboard |
 
 ## Validate against your own account
 
@@ -131,8 +164,8 @@ is defensive about them, but confirm on your setup:
 - **Phase 2 — sensors.** Land Ecowitt/YoLink soil moisture into `sensor_readings`
   (an Ecowitt local-push endpoint is stubbed at `POST /webhooks/ecowitt`) and Flume
   gallons into `flow_readings`; attribute metered water to zones by run window.
-- **Phase 2 — dashboards.** Point Grafana at the SQLite/Postgres store for
-  cross-property views.
+- **Phase 2 — dashboards.** The built-in dashboard covers cross-property views;
+  point Grafana at the SQLite/Postgres store for deeper ad-hoc analysis.
 - **Phase 3 — closed loop.** Push transformed moisture readings to Flex Daily zones
   via `setMoisturePercent`, or run our own schedule using Rachio as valves.
 
@@ -152,7 +185,11 @@ src/watertool/
     schema.sql         SQLite schema (Postgres-portable)
     store.py           persistence + the ingest->reprocess pipeline
   ingest/receiver.py   FastAPI webhook receiver
+  web/
+    dashboard.html     self-contained dashboard (inline SVG charts, no CDN)
+    payload.py         builds /data.json (with anonymization)
+    routes.py          serves / and /data.json
   jobs/                backfill, reconcile, shared helpers
   cli.py               `watertool` entry point
-tests/                 36 tests, fully offline
+tests/                 40 tests, fully offline
 ```

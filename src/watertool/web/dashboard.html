@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>watertool — irrigation dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --good:#0ca30c; --critical:#d03b3b;
+    --s1:#2a78d6; --s2:#008300; --s3:#e87ba4; --s4:#eda100;
+    --s5:#1baf7a; --s6:#eb6834; --s7:#4a3aa7; --s8:#e34948;
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark){ :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#008300; --s3:#d55181; --s4:#c98500;
+    --s5:#199e70; --s6:#d95926; --s7:#9085e9; --s8:#e66767;
+  }}
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#008300; --s3:#d55181; --s4:#c98500;
+    --s5:#199e70; --s6:#d95926; --s7:#9085e9; --s8:#e66767;
+  }
+  .s0{--c:var(--s1)} .s1{--c:var(--s2)} .s2{--c:var(--s3)} .s3{--c:var(--s4)}
+  .s4{--c:var(--s5)} .s5{--c:var(--s6)} .s6{--c:var(--s7)} .s7{--c:var(--s8)}
+
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--page); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; line-height:1.45;
+    -webkit-font-smoothing:antialiased;}
+  a{color:inherit}
+  .wrap{max-width:1180px; margin:0 auto; padding:28px 20px 64px}
+
+  header.top{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:24px}
+  .brand{display:flex; align-items:center; gap:12px}
+  .brand .logo{font-size:30px; line-height:1}
+  .brand h1{font-size:22px; margin:0; letter-spacing:-0.01em}
+  .brand p{margin:2px 0 0; color:var(--ink-2); font-size:13px}
+  .top-right{display:flex; align-items:center; gap:10px}
+  .badge{font-size:11px; color:var(--ink-2); border:1px solid var(--border); border-radius:999px; padding:4px 10px; background:var(--surface)}
+  button.toggle{font:inherit; font-size:13px; color:var(--ink-2); background:var(--surface);
+    border:1px solid var(--border); border-radius:999px; padding:6px 12px; cursor:pointer}
+  button.toggle:hover{color:var(--ink)}
+
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:26px}
+  @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+  .tile{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px}
+  .tile .label{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em}
+  .tile .value{font-size:30px; margin-top:6px; letter-spacing:-0.02em; font-variant-numeric:tabular-nums}
+  .tile .sub{font-size:12px; color:var(--ink-2); margin-top:2px}
+
+  section.panel{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:22px}
+  .panel h2{font-size:15px; margin:0 0 2px; letter-spacing:-0.01em}
+  .panel .hint{font-size:12px; color:var(--muted); margin:0 0 14px}
+  .panel-head{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+
+  .legend{display:flex; gap:16px; flex-wrap:wrap; margin:2px 0 14px}
+  .legend .item{display:flex; align-items:center; gap:7px; font-size:13px; color:var(--ink-2)}
+  .legend .swatch{width:11px; height:11px; border-radius:3px; background:var(--c)}
+
+  svg{display:block; width:100%; height:auto; overflow:visible}
+  .grid line{stroke:var(--grid); stroke-width:1}
+  .axis line{stroke:var(--axis); stroke-width:1}
+  .tick{fill:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
+  .tick.mid{fill:var(--ink-2)}
+  .bar{fill:var(--c)}
+  .bar.hoverable:hover{opacity:0.82; cursor:default}
+
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:0; overflow:hidden}
+  .card .accent{height:4px; background:var(--c)}
+  .card .body{padding:16px 18px}
+  .card .row1{display:flex; align-items:center; justify-content:space-between; gap:8px}
+  .card h3{font-size:16px; margin:0; letter-spacing:-0.01em}
+  .pill{font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap}
+  .pill .dot{width:7px; height:7px; border-radius:50%}
+  .pill.online{color:var(--good); background:color-mix(in srgb,var(--good) 12%,transparent)}
+  .pill.online .dot{background:var(--good)}
+  .pill.offline{color:var(--critical); background:color-mix(in srgb,var(--critical) 12%,transparent)}
+  .pill.offline .dot{background:var(--critical)}
+  .card .meta{color:var(--ink-2); font-size:12.5px; margin-top:4px}
+  .card .stats{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:14px}
+  .card .stat .n{font-size:19px; font-variant-numeric:tabular-nums; letter-spacing:-0.01em}
+  .card .stat .k{font-size:11px; color:var(--muted)}
+  .card .spark{margin-top:14px}
+  .card .spark .cap{font-size:11px; color:var(--muted); margin-bottom:4px; display:flex; justify-content:space-between}
+
+  .filters{display:flex; gap:8px; flex-wrap:wrap}
+  .chip{font:inherit; font-size:12.5px; color:var(--ink-2); background:transparent; border:1px solid var(--border);
+    border-radius:999px; padding:5px 12px; cursor:pointer; display:inline-flex; align-items:center; gap:6px}
+  .chip .sw{width:9px; height:9px; border-radius:2px; background:var(--c)}
+  .chip[aria-pressed="true"]{color:var(--ink); border-color:var(--ink); background:color-mix(in srgb,var(--ink) 6%,transparent)}
+
+  table{width:100%; border-collapse:collapse; font-size:13px}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--border)}
+  th{color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.03em}
+  td.num,th.num{text-align:right; font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:color-mix(in srgb,var(--ink) 3%,transparent)}
+  .flag{font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:1px 5px}
+
+  #tip{position:fixed; pointer-events:none; z-index:50; background:var(--surface); color:var(--ink);
+    border:1px solid var(--border); border-radius:9px; padding:8px 10px; font-size:12px;
+    box-shadow:0 6px 22px rgba(0,0,0,0.16); opacity:0; transition:opacity .08s; max-width:240px}
+  #tip .t-title{font-weight:600; margin-bottom:3px}
+  #tip .t-row{display:flex; align-items:center; gap:6px; color:var(--ink-2)}
+  #tip .t-row .sw{width:9px;height:9px;border-radius:2px;background:var(--c)}
+  #tip b{color:var(--ink); font-variant-numeric:tabular-nums}
+  .empty{color:var(--muted); font-size:13px; padding:8px 0}
+  .foot{color:var(--muted); font-size:12px; text-align:center; margin-top:30px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">💧</div>
+      <div>
+        <h1>watertool</h1>
+        <p id="subtitle">irrigation across your properties</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <span class="badge" id="privacy-badge" hidden>anonymized</span>
+      <span class="badge" id="asof"></span>
+      <button class="toggle" id="theme" aria-label="Toggle theme">◐ theme</button>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Monthly water use by residence</h2>
+      <p class="hint">Estimated gallons per month · last 12 months. Hover a bar for detail.</p></div>
+    </div>
+    <div class="legend" id="compare-legend"></div>
+    <div id="compare"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Properties</h2>
+    <p class="hint">One card per residence · monthly sparkline shows the last 12 months.</p>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Where the water goes</h2>
+      <p class="hint">Top zones by estimated gallons. Filter by residence.</p></div>
+      <div class="filters" id="zone-filters"></div>
+    </div>
+    <div id="zones"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Recent runs</h2>
+    <p class="hint">Most recent zone waterings across all controllers.</p>
+    <div style="overflow-x:auto"><table id="runs"><thead><tr>
+      <th>When</th><th>Residence</th><th>Zone</th><th class="num">Min</th><th class="num">Gallons</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <p class="foot" id="foot"></p>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmt=n=>n==null?'—':n.toLocaleString('en-US');
+const tip=document.getElementById('tip');
+let DATA=null, COLOR={};
+
+function niceMax(v){ if(v<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(v))); const f=v/p;
+  const nf=f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10; return nf*p; }
+function topRounded(x,y,w,h,r){ r=Math.max(0,Math.min(r,w/2,h));
+  return `M${x},${y+h} L${x},${y+r} Q${x},${y} ${x+r},${y} L${x+w-r},${y} Q${x+w},${y} ${x+w},${y+r} L${x+w},${y+h} Z`; }
+function rightRounded(x,y,w,h,r){ r=Math.max(0,Math.min(r,h/2,w));
+  return `M${x},${y} L${x+w-r},${y} Q${x+w},${y} ${x+w},${y+r} L${x+w},${y+h-r} Q${x+w},${y+h} ${x+w-r},${y+h} L${x},${y+h} Z`; }
+function showTip(html,cls){ tip.innerHTML=html; tip.className=cls||''; tip.style.opacity=1; }
+function moveTip(e){ const p=12; let x=e.clientX+p, y=e.clientY+p;
+  const r=tip.getBoundingClientRect();
+  if(x+r.width>innerWidth) x=e.clientX-r.width-p;
+  if(y+r.height>innerHeight) y=e.clientY-r.height-p;
+  tip.style.left=x+'px'; tip.style.top=y+'px'; }
+function hideTip(){ tip.style.opacity=0; }
+addEventListener('mousemove',e=>{ if(tip.style.opacity==1) moveTip(e); });
+
+function relDate(iso){ if(!iso) return '—'; const d=new Date(iso); const days=Math.floor((Date.now()-d)/864e5);
+  if(days<=0) return 'today'; if(days===1) return 'yesterday'; if(days<30) return days+'d ago';
+  if(days<365) return Math.floor(days/30)+'mo ago'; return Math.floor(days/365)+'y ago'; }
+
+async function load(){
+  const res=await fetch('./data.json',{cache:'no-store'});
+  DATA=await res.json();
+  // stable color per property, by sorted name (matches server sort)
+  const names=[...new Set(DATA.overview.map(p=>p.name))];
+  names.forEach((n,i)=>COLOR[n]=i%8);
+  document.getElementById('asof').textContent='as of '+new Date(DATA.generated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  if(DATA.anonymized){ document.getElementById('privacy-badge').hidden=false;
+    document.getElementById('subtitle').textContent='irrigation across your properties · addresses hidden'; }
+  renderKPIs(); renderCompare(); renderCards(); buildZoneFilters(); renderZones(null); renderRuns();
+  document.getElementById('foot').textContent =
+    `${DATA.overview.length} properties · gallons are estimates from nozzle rate × area (metered where a flow meter exists).`;
+}
+
+function renderKPIs(){
+  const o=DATA.overview;
+  const gal=o.reduce((s,p)=>s+(p.gallons||0),0);
+  const runs=o.reduce((s,p)=>s+(p.runs||0),0);
+  const ctl=o.flatMap(p=>p.controllers);
+  const online=ctl.filter(c=>c.status==='ONLINE').length;
+  const firsts=o.map(p=>p.first_run).filter(Boolean).sort();
+  const since=firsts.length?new Date(firsts[0]).toLocaleDateString('en-US',{month:'short',year:'numeric'}):'—';
+  const tiles=[
+    {label:'Water used · 12 mo', value:fmt(gal), sub:'estimated gallons'},
+    {label:'Zone runs', value:fmt(runs), sub:'since '+since},
+    {label:'Controllers online', value:online+' / '+ctl.length, sub:(ctl.length-online)+' offline'},
+    {label:'Properties', value:o.length, sub:o.reduce((s,p)=>s+p.zones,0)+' zones total'},
+  ];
+  document.getElementById('kpis').innerHTML=tiles.map(t=>
+    `<div class="tile"><div class="label">${t.label}</div><div class="value">${t.value}</div><div class="sub">${t.sub}</div></div>`).join('');
+}
+
+function renderCompare(){
+  const rows=DATA.monthly;
+  const el=document.getElementById('compare');
+  if(!rows.length){ el.innerHTML='<p class="empty">No monthly data yet.</p>'; return; }
+  const months=[...new Set(rows.map(r=>r.month))].sort();
+  const props=[...new Set(rows.map(r=>r.property))].sort();
+  const val={}; rows.forEach(r=>{ val[r.property+'|'+r.month]=r.gallons; });
+  const maxV=niceMax(Math.max(...rows.map(r=>r.gallons),1));
+
+  // legend
+  document.getElementById('compare-legend').innerHTML=props.map(p=>
+    `<span class="item s${COLOR[p]}"><span class="swatch"></span>${p}</span>`).join('');
+
+  const W=980,H=340, mL=52,mR=12,mT=10,mB=34;
+  const plotW=W-mL-mR, plotH=H-mT-mB;
+  const band=plotW/months.length, inner=band*0.72, bw=inner/props.length;
+  const y=v=>mT+plotH-(v/maxV)*plotH;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly gallons by residence">`;
+  // gridlines + y ticks
+  s+='<g class="grid">';
+  for(let i=0;i<=4;i++){ const gv=maxV*i/4, gy=y(gv);
+    s+=`<line x1="${mL}" y1="${gy}" x2="${W-mR}" y2="${gy}"/>`;
+    s+=`<text class="tick" x="${mL-8}" y="${gy+4}" text-anchor="end">${fmt(Math.round(gv))}</text>`; }
+  s+='</g>';
+  // bars
+  months.forEach((m,mi)=>{
+    const bx=mL+mi*band+(band-inner)/2;
+    props.forEach((p,pi)=>{
+      const v=val[p+'|'+m]||0; if(v<=0) return;
+      const x=bx+pi*bw, h=(v/maxV)*plotH, yy=y(v);
+      s+=`<path class="bar hoverable s${COLOR[p]}" d="${topRounded(x+1,yy,bw-2,h,4)}"
+            data-p="${encodeURIComponent(p)}" data-m="${m}" data-v="${v}">`+
+         `<title>${p} · ${MONTHS[+m.split('-')[1]-1]} ${m.split('-')[0]}: ${fmt(v)} gal</title></path>`;
+    });
+    // x label
+    const [yy,mm]=m.split('-'); const lab=MONTHS[+mm-1];
+    const cls=(mm==='01'||mi===0)?'tick mid':'tick';
+    s+=`<text class="${cls}" x="${mL+mi*band+band/2}" y="${H-mB+18}" text-anchor="middle">${lab}</text>`;
+    if(mm==='01'||mi===0) s+=`<text class="tick" x="${mL+mi*band+band/2}" y="${H-mB+30}" text-anchor="middle">${yy}</text>`;
+  });
+  s+=`<g class="axis"><line x1="${mL}" y1="${mT+plotH}" x2="${W-mR}" y2="${mT+plotH}"/></g>`;
+  s+='</svg>';
+  el.innerHTML=s;
+  el.querySelectorAll('.bar').forEach(b=>{
+    b.addEventListener('mouseenter',e=>{ const p=decodeURIComponent(b.dataset.p), m=b.dataset.m;
+      showTip(`<div class="t-title">${MONTHS[+m.split('-')[1]-1]} ${m.split('-')[0]}</div>
+        <div class="t-row"><span class="sw"></span>${p}: <b>${fmt(+b.dataset.v)}</b>&nbsp;gal</div>`,'s'+COLOR[p]);
+      moveTip(e); });
+    b.addEventListener('mouseleave',hideTip);
+  });
+}
+
+function renderCards(){
+  const el=document.getElementById('cards');
+  el.innerHTML=DATA.overview.map(p=>{
+    const on=p.status==='ONLINE';
+    const spark=sparkBars(p.monthly, COLOR[p.name]);
+    const ctlNames=p.controllers.map(c=>c.name).filter(Boolean).join(', ');
+    return `<div class="card s${COLOR[p.name]}">
+      <div class="accent"></div>
+      <div class="body">
+        <div class="row1"><h3>${p.name}</h3>
+          <span class="pill ${on?'online':'offline'}"><span class="dot"></span>${on?'online':'offline'}</span></div>
+        <div class="meta">${p.controllers.length} controller${p.controllers.length!==1?'s':''} · ${p.zones} zones${ctlNames?' · '+ctlNames:''}</div>
+        <div class="stats">
+          <div class="stat"><div class="n">${fmt(p.gallons)}</div><div class="k">gallons</div></div>
+          <div class="stat"><div class="n">${fmt(p.runs)}</div><div class="k">runs</div></div>
+          <div class="stat"><div class="n">${p.last_run?relDate(p.last_run):'—'}</div><div class="k">last run</div></div>
+        </div>
+        <div class="spark"><div class="cap"><span>monthly gallons</span><span>${p.hours||0} h total</span></div>${spark}</div>
+      </div></div>`;
+  }).join('');
+}
+
+function sparkBars(monthly, ci){
+  // last 12 calendar months, aligned
+  const now=new Date(); const keys=[];
+  for(let i=11;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    keys.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+  const map={}; (monthly||[]).forEach(m=>map[m.month]=m.gallons);
+  const vals=keys.map(k=>map[k]||0); const mx=Math.max(...vals,1);
+  const W=240,H=42,gap=3,bw=(W-gap*(keys.length-1))/keys.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}" class="s${ci}" role="img" aria-label="monthly gallons sparkline">`;
+  vals.forEach((v,i)=>{ const h=v<=0?0:Math.max(2,(v/mx)*(H-2)); const x=i*(bw+gap), y=H-h;
+    const op=v<=0?0.14:1;
+    s+=`<path class="bar" d="${topRounded(x,y,bw,h,2)}" style="opacity:${op}"><title>${MONTHS[+keys[i].split('-')[1]-1]} ${keys[i].split('-')[0]}: ${fmt(v)} gal</title></path>`; });
+  s+='</svg>'; return s;
+}
+
+function buildZoneFilters(){
+  const props=[...new Set(DATA.overview.map(p=>p.name))].sort();
+  const el=document.getElementById('zone-filters');
+  el.innerHTML=`<button class="chip" data-pid="" aria-pressed="true">All</button>`+
+    DATA.overview.map(p=>`<button class="chip s${COLOR[p.name]}" data-pid="${p.id}"><span class="sw"></span>${p.name}</button>`).join('');
+  el.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
+    el.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
+    c.setAttribute('aria-pressed','true'); renderZones(c.dataset.pid||null);
+  }));
+}
+
+function renderZones(pid){
+  let z=DATA.zones.filter(r=>r.gallons>0);
+  if(pid) z=z.filter(r=>r.pid===pid);
+  z=z.sort((a,b)=>b.gallons-a.gallons).slice(0,12);
+  const el=document.getElementById('zones');
+  if(!z.length){ el.innerHTML='<p class="empty">No attributed zone usage for this selection.</p>'; return; }
+  const maxV=niceMax(Math.max(...z.map(r=>r.gallons)));
+  const rowH=30, W=980, mL=190, mR=64, mT=6, mB=6;
+  const plotW=W-mL-mR, H=mT+mB+z.length*rowH;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Top zones by gallons">`;
+  s+='<g class="grid">';
+  for(let i=0;i<=4;i++){ const gx=mL+plotW*i/4;
+    s+=`<line x1="${gx}" y1="${mT}" x2="${gx}" y2="${H-mB}"/>`;
+    s+=`<text class="tick" x="${gx}" y="${H-mB+2}" text-anchor="middle" dy="10">${fmt(Math.round(maxV*i/4))}</text>`; }
+  s+='</g>';
+  z.forEach((r,i)=>{
+    const y=mT+i*rowH+4, h=rowH-12, w=(r.gallons/maxV)*plotW;
+    const ci=COLOR[r.property];
+    const zlabel=r.zone.length>26?r.zone.slice(0,25)+'…':r.zone;
+    s+=`<text class="tick" x="${mL-10}" y="${y+h/2+4}" text-anchor="end" style="fill:var(--ink-2)">${zlabel}</text>`;
+    s+=`<path class="bar hoverable s${ci}" d="${rightRounded(mL,y,Math.max(2,w),h,4)}"
+          data-z="${encodeURIComponent(r.zone)}" data-p="${encodeURIComponent(r.property)}" data-v="${r.gallons}" data-r="${r.runs}">`+
+       `<title>${r.zone} (${r.property}): ${fmt(r.gallons)} gal, ${r.runs} runs</title></path>`;
+    s+=`<text class="tick" x="${mL+Math.max(2,w)+8}" y="${y+h/2+4}" style="fill:var(--ink-2)">${fmt(r.gallons)}</text>`;
+  });
+  s+='</svg>'; el.innerHTML=s;
+  el.querySelectorAll('.bar').forEach(b=>{
+    b.addEventListener('mouseenter',e=>{ const z=decodeURIComponent(b.dataset.z), p=decodeURIComponent(b.dataset.p);
+      const gal=+b.dataset.v, runs=+b.dataset.r;
+      showTip(`<div class="t-title">${z}</div>
+        <div class="t-row"><span class="sw"></span>${p}</div>
+        <div class="t-row"><b>${fmt(gal)}</b>&nbsp;gal · ${runs} runs · <b>${runs?Math.round(gal/runs):0}</b>&nbsp;gal/run</div>`,'s'+COLOR[p]);
+      moveTip(e); });
+    b.addEventListener('mouseleave',hideTip);
+  });
+}
+
+function renderRuns(){
+  const tb=document.querySelector('#runs tbody');
+  if(!DATA.runs.length){ tb.innerHTML='<tr><td colspan="6" class="empty">No runs recorded yet.</td></tr>'; return; }
+  tb.innerHTML=DATA.runs.slice(0,40).map(r=>{
+    const d=new Date(r.start);
+    const when=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    const flags=[]; if(r.cycle_soak) flags.push('<span class="flag">soak</span>');
+    if(!r.complete) flags.push('<span class="flag">incomplete</span>');
+    return `<tr><td>${when}</td><td>${r.property}</td><td>${r.zone}</td>
+      <td class="num">${r.duration_min}</td><td class="num">${r.gallons==null?'—':fmt(r.gallons)}</td><td>${flags.join(' ')}</td></tr>`;
+  }).join('');
+}
+
+// theme toggle
+const root=document.documentElement;
+const saved=localStorage.getItem('wt-theme'); if(saved) root.setAttribute('data-theme',saved);
+document.getElementById('theme').addEventListener('click',()=>{
+  const cur=root.getAttribute('data-theme');
+  const next=cur==='dark'?'light':cur==='light'?'dark':(matchMedia('(prefers-color-scheme: dark)').matches?'light':'dark');
+  root.setAttribute('data-theme',next); localStorage.setItem('wt-theme',next);
+});
+
+load().catch(e=>{ document.getElementById('kpis').innerHTML='<div class="tile"><div class="label">error</div><div class="sub">could not load data.json — '+e+'</div></div>'; });
+</script>
+</body>
+</html>

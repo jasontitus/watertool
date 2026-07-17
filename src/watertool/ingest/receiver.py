@@ -22,12 +22,14 @@ from ..db.store import Store
 from ..rachio import events as ev
 from ..rachio.webhooks import verify_request
 from ..util import to_iso, utcnow
+from ..web.routes import register_web
 
 log = logging.getLogger("watertool.receiver")
 
 
 def create_app(settings: Settings, store: Store) -> FastAPI:
     app = FastAPI(title="watertool", version="0.1.0")
+    register_web(app, store)  # dashboard at "/" and /data.json
 
     @app.get("/healthz")
     def healthz() -> dict:

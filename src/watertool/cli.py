@@ -112,6 +112,28 @@ def _cmd_report(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(settings: Settings, args: argparse.Namespace) -> int:
+    import json
+    import shutil
+    from pathlib import Path
+
+    from .web.payload import build_payload
+
+    store = Store(settings.database_path)
+    store.init_db()
+    anonymize = not args.full
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    src_html = Path(__file__).parent / "web" / "dashboard.html"
+    shutil.copyfile(src_html, out / "index.html")
+    payload = build_payload(store, anonymize=anonymize)
+    (out / "data.json").write_text(json.dumps(payload))
+    mode = "FULL addresses" if args.full else "anonymized (street names only)"
+    print(f"exported static dashboard to {out}/ ({mode}); "
+          f"{len(payload['overview'])} properties, {len(payload['runs'])} recent runs")
+    return 0
+
+
 def _cmd_serve(settings: Settings, args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -148,6 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
     rep = sub.add_parser("report")
     rep.add_argument("--weeks", type=int, default=8)
     rep.set_defaults(func=_cmd_report)
+
+    ex = sub.add_parser("export")
+    ex.add_argument("--out", default="dist", help="output directory (default dist/)")
+    ex.add_argument("--full", action="store_true", help="include full addresses (default: anonymized)")
+    ex.set_defaults(func=_cmd_export)
 
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="0.0.0.0")

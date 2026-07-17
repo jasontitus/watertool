@@ -313,6 +313,124 @@ class Store:
 
     # --- reporting ---------------------------------------------------------
 
+    # --- dashboard API ------------------------------------------------------
+
+    def property_overview(self) -> list[dict]:
+        """Per-property rollup for the dashboard: status, totals, monthly sparkline."""
+        out: list[dict] = []
+        with self._conn() as c:
+            props = c.execute("SELECT * FROM properties ORDER BY name").fetchall()
+            for p in props:
+                devs = c.execute(
+                    "SELECT id, name, status, model FROM devices WHERE property_id=? ORDER BY name",
+                    (p["id"],),
+                ).fetchall()
+                dev_ids = [d["id"] for d in devs]
+                ph = ",".join("?" * len(dev_ids)) or "NULL"
+                zones = c.execute(
+                    f"SELECT COUNT(*) n FROM zones WHERE device_id IN ({ph})", dev_ids
+                ).fetchone()["n"] if dev_ids else 0
+                agg = c.execute(
+                    f"""SELECT COUNT(*) runs, MIN(start_time) first, MAX(start_time) last,
+                        SUM(COALESCE(flow_volume_gallons, gallons_estimated)) gallons,
+                        SUM(duration_seconds)/3600.0 hours
+                        FROM zone_runs WHERE device_id IN ({ph})""",
+                    dev_ids,
+                ).fetchone() if dev_ids else None
+                monthly = c.execute(
+                    f"""SELECT substr(start_time,1,7) month,
+                        SUM(COALESCE(flow_volume_gallons, gallons_estimated)) gallons
+                        FROM zone_runs WHERE device_id IN ({ph})
+                        GROUP BY month ORDER BY month""",
+                    dev_ids,
+                ).fetchall() if dev_ids else []
+                out.append({
+                    "id": p["id"],
+                    "name": p["name"],
+                    "address": p["address"],
+                    "status": "ONLINE" if any(d["status"] == "ONLINE" for d in devs) else "OFFLINE",
+                    "controllers": [
+                        {"name": d["name"], "status": d["status"], "model": d["model"]}
+                        for d in devs
+                    ],
+                    "zones": zones,
+                    "runs": agg["runs"] if agg else 0,
+                    "gallons": round(agg["gallons"]) if agg and agg["gallons"] else 0,
+                    "hours": round(agg["hours"], 1) if agg and agg["hours"] else 0,
+                    "first_run": agg["first"] if agg else None,
+                    "last_run": agg["last"] if agg else None,
+                    "monthly": [{"month": m["month"], "gallons": round(m["gallons"] or 0)} for m in monthly],
+                })
+        return out
+
+    def monthly_by_property(self, months: int = 12) -> list[dict]:
+        since = to_iso(utcnow() - timedelta(days=months * 31))
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT p.id pid, p.name property, substr(r.start_time,1,7) month,
+                       COUNT(*) runs,
+                       SUM(COALESCE(r.flow_volume_gallons, r.gallons_estimated)) gallons
+                FROM zone_runs r
+                JOIN devices d ON d.id = r.device_id
+                JOIN properties p ON p.id = d.property_id
+                WHERE r.start_time >= ?
+                GROUP BY pid, month ORDER BY month
+                """,
+                (since,),
+            ).fetchall()
+        return [{"pid": r["pid"], "property": r["property"], "month": r["month"],
+                 "runs": r["runs"], "gallons": round(r["gallons"] or 0)} for r in rows]
+
+    def zone_usage(self, property_id: str | None = None, limit: int = 40) -> list[dict]:
+        sql = """
+            SELECT p.id pid, p.name property,
+                   COALESCE(z.name, 'zone ' || r.zone_number, '(unattributed)') zone,
+                   COUNT(*) runs,
+                   SUM(r.gallons_estimated) gallons,
+                   SUM(r.duration_seconds)/60.0 minutes,
+                   z.inches_per_hour iph, z.area_sqft area, z.efficiency eff
+            FROM zone_runs r
+            JOIN devices d ON d.id = r.device_id
+            JOIN properties p ON p.id = d.property_id
+            LEFT JOIN zones z ON z.id = r.zone_id
+        """
+        params: list[Any] = []
+        if property_id:
+            sql += " WHERE p.id = ?"
+            params.append(property_id)
+        sql += " GROUP BY pid, zone ORDER BY gallons DESC NULLS LAST LIMIT ?"
+        params.append(limit)
+        with self._conn() as c:
+            rows = c.execute(sql, params).fetchall()
+        return [{"pid": r["pid"], "property": r["property"], "zone": r["zone"],
+                 "runs": r["runs"], "gallons": round(r["gallons"]) if r["gallons"] else 0,
+                 "minutes": round(r["minutes"]) if r["minutes"] else 0,
+                 "iph": r["iph"], "area": r["area"], "eff": r["eff"]} for r in rows]
+
+    def recent_runs(self, limit: int = 100) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT p.name property,
+                       COALESCE(z.name, 'zone ' || r.zone_number, '(unattributed)') zone,
+                       r.start_time, r.duration_seconds,
+                       COALESCE(r.flow_volume_gallons, r.gallons_estimated) gallons,
+                       r.complete, r.was_cycle_soak
+                FROM zone_runs r
+                JOIN devices d ON d.id = r.device_id
+                JOIN properties p ON p.id = d.property_id
+                LEFT JOIN zones z ON z.id = r.zone_id
+                ORDER BY r.start_time DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [{"property": r["property"], "zone": r["zone"], "start": r["start_time"],
+                 "duration_min": round((r["duration_seconds"] or 0) / 60, 1),
+                 "gallons": round(r["gallons"]) if r["gallons"] else None,
+                 "complete": bool(r["complete"]), "cycle_soak": bool(r["was_cycle_soak"])}
+                for r in rows]
+
     def weekly_usage(self, weeks: int = 8) -> list[sqlite3.Row]:
         """Gallons + runtime per property/zone/ISO-week for the last N weeks."""
         since = to_iso(utcnow() - timedelta(weeks=weeks))
